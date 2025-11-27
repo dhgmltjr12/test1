@@ -1,226 +1,257 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>차량 출입 QR 기록기</title>
-  <!-- Bootstrap (optional, for quick UI) -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <!-- html5-qrcode -->
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
-  <!-- SheetJS (xlsx) -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <style>
-    body { padding: 1rem; }
-    #scanner { width:100%; max-width:480px; margin: 0 auto; }
-    .hidden { display:none !important; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR 차량기록 시스템</title>
+
+    <!-- QR 스캔 라이브러리 -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+    <!-- SheetJS (엑셀 생성) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .hidden { display: none; }
+
+        #scanner-area {
+            width: 100%;
+            max-width: 400px;
+            margin: auto;
+        }
+
+        #reader {
+            width: 100%;
+            aspect-ratio: 1;
+        }
+
+        input, button {
+            width: 100%;
+            padding: 12px;
+            margin: 8px 0;
+            font-size: 16px;
+        }
+
+        button {
+            background: #1976D2;
+            color: white;
+            border: none;
+            border-radius: 8px;
+        }
+
+        button:active {
+            background: #0F4C8A;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-top: 30px;
+        }
+    </style>
 </head>
 <body>
-  <div class="container">
-    <h3 class="mb-3">차량 출입 기록기 (QR → Excel)</h3>
 
-    <!-- 입력 폼 -->
-    <div id="input-section" class="card mb-3 p-3">
-      <div class="row g-2">
-        <div class="col-md-6">
-          <label class="form-label">차량번호</label>
-          <input id="vehicleNo" class="form-control" placeholder="예) 12가3456">
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">이름</label>
-          <input id="name" class="form-control" placeholder="운전자 이름">
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">연락처</label>
-          <input id="phone" class="form-control" placeholder="010-1234-5678">
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">톤수</label>
-          <input id="tonnage" class="form-control" placeholder="예) 5">
-        </div>
-      </div>
-      <div class="mt-3">
-        <button id="start-loading-scan" class="btn btn-primary">입력완료 &amp; 충수지점 QR 스캔 시작</button>
-        <button id="export-btn" class="btn btn-success hidden">Excel 다운로드</button>
-      </div>
-    </div>
+<h2>차량 정보 입력</h2>
 
-    <!-- 스캐너 영역 -->
-    <div id="scanner-area" class="card p-3 mb-3 hidden">
-      <div id="scanner" ></div>
-      <div class="mt-2">
-        <button id="stop-scan" class="btn btn-outline-secondary">스캔 중지</button>
-      </div>
-    </div>
+<div id="input-area">
+    <input type="text" id="carNum" placeholder="차량번호">
+    <input type="text" id="driverName" placeholder="이름">
+    <input type="text" id="phone" placeholder="연락처">
+    <input type="text" id="ton" placeholder="톤수">
 
-    <!-- 하차지점 섹션 -->
-    <div id="arrival-section" class="card p-3 mb-3 hidden">
-      <p>충수지점 스캔이 완료되었습니다.</p>
-      <div class="d-flex gap-2">
-        <button id="edit-info" class="btn btn-outline-primary">입력정보 수정</button>
-        <button id="start-unloading-scan" class="btn btn-primary">하차지점 도착 - QR 스캔</button>
-      </div>
-    </div>
+    <button onclick="startFirstScan()">입력 완료 & QR 스캔 시작</button>
+</div>
 
-    <!-- 상태 표시 -->
-    <div id="log" class="card p-3">
-      <h6>작업 로그</h6>
-      <div id="log-content" style="white-space:pre-wrap; font-family:monospace; font-size:0.95rem;"></div>
-    </div>
+<!-- QR 스캔 구역 -->
+<div id="scanner-area" class="hidden">
+    <div id="reader"></div>
+    <button onclick="stopScan()">스캔 중지</button>
+</div>
 
-  </div>
+<!-- 하차지점 화면 -->
+<div id="after-first" class="hidden">
+    <h3>충수지점 스캔 완료</h3>
+    <button onclick="editInfo()">입력정보 수정</button>
+    <button onclick="startSecondScan()">하차지점 QR 스캔</button>
+</div>
+
+<!-- 최종 완료 -->
+<div id="done-area" class="hidden">
+    <h3>하차지점 스캔 완료</h3>
+    <button onclick="downloadExcel()">엑셀 다운로드</button>
+</div>
+
 
 <script>
-// --- 전역 상태 ---
-let records = []; // 각 스캔의 행을 저장
-let currentInfo = { vehicleNo: '', name: '', phone: '', tonnage: '' };
+/* ---------------------------
+   전역 변수
+--------------------------- */
 let html5QrcodeScanner = null;
-let activeRole = null; // 'loading' or 'unloading'
+let firstScanData = null;
+let secondScanData = null;
 
-// DOM
-const $ = id => document.getElementById(id);
-const log = (s)=> { const c = $('log-content'); c.textContent = (new Date()).toLocaleString() + ' | ' + s + '\n' + c.textContent; };
-
-function formatTimestamp(d = new Date()){
-  // yyyy-mm-dd hh:mm:ss
-  const z = n => n.toString().padStart(2,'0');
-  return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
+/* ---------------------------
+   스캐너 표시/숨김
+--------------------------- */
+function showScanner(on) {
+    document.getElementById("scanner-area").style.display = on ? "block" : "none";
+    window.scrollTo(0, 0);
 }
 
-function readInputsToCurrent(){
-  currentInfo.vehicleNo = $('vehicleNo').value.trim();
-  currentInfo.name = $('name').value.trim();
-  currentInfo.phone = $('phone').value.trim();
-  currentInfo.tonnage = $('tonnage').value.trim();
+/* ===========================
+    1. 첫 번째 QR 스캔 시작
+=========================== */
+async function startFirstScan() {
+
+    // 입력값 체크
+    if (!carNum.value || !driverName.value || !phone.value || !ton.value) {
+        alert("모든 정보를 입력하세요");
+        return;
+    }
+
+    showScanner(true);
+
+    /* ❗ Android-safe delay 패치(50ms) */
+    await new Promise(res => setTimeout(res, 80));
+
+    await startCamera("first");
 }
 
-function validateInputs(){
-  readInputsToCurrent();
-  if(!currentInfo.vehicleNo) return '차량번호를 입력하세요.';
-  if(!currentInfo.name) return '이름을 입력하세요.';
-  if(!currentInfo.phone) return '연락처를 입력하세요.';
-  if(!currentInfo.tonnage) return '톤수를 입력하세요.';
-  return null;
+
+/* ===========================
+    2. 두 번째 QR 스캔 시작
+=========================== */
+async function startSecondScan() {
+    showScanner(true);
+
+    /* ❗ Android-safe delay 패치(80ms) */
+    await new Promise(res => setTimeout(res, 80));
+
+    await startCamera("second");
 }
 
-function showScannerArea(show){
-  document.querySelector('#scanner-area').classList.toggle('hidden', !show);
-}
-function showArrivalSection(show){
-  document.querySelector('#arrival-section').classList.toggle('hidden', !show);
-}
-function showExportBtn(show){
-  document.querySelector('#export-btn').classList.toggle('hidden', !show);
-}
 
-async function startScan(role){
-  const validationMessage = validateInputs();
-  if(validationMessage){ alert(validationMessage); return; }
-  activeRole = role;
-  readInputsToCurrent();
+/* ---------------------------
+   공통: 카메라 시작
+   안드로이드 안정화 패치 포함
+--------------------------- */
+async function startCamera(mode) {
 
-  // 스캐너 UI
-  showScannerArea(true);
-  $('scanner').innerHTML = '';
-  log(`${role === 'loading' ? '충수' : '하차'} 스캔 시작 - 카메라 권한 요청`);
+    if (html5QrcodeScanner) {
+        try { await html5QrcodeScanner.stop(); } catch(e){}
+    }
 
-  // html5-qrcode 사용
-  const qrRegionId = 'scanner';
-  const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+    html5QrcodeScanner = new Html5Qrcode("reader");
 
-  html5QrcodeScanner = new Html5Qrcode(qrRegionId, /* verbose= */ false);
+    /* ❗ Android-friendly 설정 */
+    const config = {
+        fps: 10,
+        qrbox: { width: 250, height: 250 }
+    };
 
-  try{
-    await html5QrcodeScanner.start(
-      { facingMode: 'environment' },
-      config,
-      qrMessage => {
-        // 스캔 성공
-        const now = new Date();
-        const ts = formatTimestamp(now);
-        const rec = {
-          차량번호: currentInfo.vehicleNo,
-          이름: currentInfo.name,
-          연락처: currentInfo.phone,
-          톤수: currentInfo.tonnage,
-          단계: role === 'loading' ? '충수' : '하차',
-          QR내용: qrMessage,
-          스캔시간: ts
-        };
-        records.push(rec);
-        log(`${role === 'loading' ? '충수' : '하차'} 스캔됨 → ${qrMessage} @ ${ts}`);
+    /* ❗ 핵심 패치: facingMode 강제 대신 자동 탐색 */
+    Html5Qrcode.getCameras().then(async devices => {
 
-        // 스캔 후 동작: 충수는 도착 섹션 보이기, 하차는 스캔 중지 및 Excel 활성화
-        stopScanning();
-        if(role === 'loading'){
-          showArrivalSection(true);
-        }else{
-          showExportBtn(true);
+        const cameraId = devices[0].id; // 첫 번째 카메라 자동 선택
+
+        try {
+            await html5QrcodeScanner.start(
+                { facingMode: "environment" },  // 안정 모드
+                config,
+                (decodedText) => onScanSuccess(decodedText, mode),
+                (errorMessage) => {}
+            );
+        } catch (e) {
+            alert("카메라 실행 오류: " + e);
         }
-      },
-      err => {
-        // 스캔 실패(프레임 당) — 무시하거나 로그
-        // console.log('scan fail', err);
-      }
-    );
-  }catch(e){
-    console.error(e);
-    alert('카메라를 실행할 수 없습니다. 브라우저 권한 또는 카메라 사용 가능 여부를 확인하세요.');
-    showScannerArea(false);
-  }
+
+    }).catch(err => alert("카메라 장치를 찾을 수 없음: " + err));
 }
 
-function stopScanning(){
-  if(html5QrcodeScanner){
-    html5QrcodeScanner.stop().then(()=>{
-      html5QrcodeScanner.clear();
-      html5QrcodeScanner = null;
-      showScannerArea(false);
-      log('스캔 중지');
-    }).catch(err=>{
-      console.warn('stop error', err);
-      html5QrcodeScanner = null;
-      showScannerArea(false);
-    });
-  } else {
-    showScannerArea(false);
-  }
+
+/* ---------------------------
+   스캔 성공 처리
+--------------------------- */
+async function onScanSuccess(text, mode) {
+
+    const now = new Date().toLocaleString();
+
+    if (mode === "first") {
+        firstScanData = {
+            carNum: carNum.value,
+            driverName: driverName.value,
+            phone: phone.value,
+            ton: ton.value,
+            step: "충수",
+            qr: text,
+            time: now
+        };
+
+        await stopScan();
+        document.getElementById("after-first").classList.remove("hidden");
+    }
+
+    if (mode === "second") {
+        secondScanData = {
+            carNum: carNum.value,
+            driverName: driverName.value,
+            phone: phone.value,
+            ton: ton.value,
+            step: "하차",
+            qr: text,
+            time: now
+        };
+
+        await stopScan();
+        document.getElementById("done-area").classList.remove("hidden");
+    }
+
+    showScanner(false);
 }
 
-function editInfo(){
-  // 입력 섹션 보이기 및 현재값 채우기
-  $('vehicleNo').value = currentInfo.vehicleNo;
-  $('name').value = currentInfo.name;
-  $('phone').value = currentInfo.phone;
-  $('tonnage').value = currentInfo.tonnage;
-  log('입력정보 수정 모드로 전환');
-  // 스캐너가 보이면 닫기
-  stopScanning();
+
+/* ---------------------------
+   스캔 중지
+--------------------------- */
+async function stopScan() {
+    if (html5QrcodeScanner) {
+        try {
+            await html5QrcodeScanner.stop();
+        } catch (e) {}
+    }
+    showScanner(false);
 }
 
-function exportExcel(){
-  if(records.length === 0){ alert('저장된 기록이 없습니다.'); return; }
-  // SheetJS로 변환
-  const ws = XLSX.utils.json_to_sheet(records);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Records');
-  const filename = `vehicle_qr_records_${(new Date()).toISOString().slice(0,19).replace(/[:T]/g,'_')}.xlsx`;
-  XLSX.writeFile(wb, filename);
-  log('Excel 파일 다운로드: ' + filename);
+
+/* ---------------------------
+   입력정보 수정 기능
+--------------------------- */
+function editInfo() {
+    document.getElementById("input-area").scrollIntoView({behavior: "smooth"});
 }
 
-// 이벤트 바인딩
-document.addEventListener('DOMContentLoaded', ()=>{
-  $('start-loading-scan').addEventListener('click', ()=> startScan('loading'));
-  $('start-unloading-scan').addEventListener('click', ()=> startScan('unloading'));
-  $('stop-scan').addEventListener('click', stopScanning);
-  $('edit-info').addEventListener('click', editInfo);
-  $('export-btn').addEventListener('click', exportExcel);
 
-  // 초기 로그
-  log('페이지 로드됨. 차량 정보를 입력하고 "입력완료 & 충수지점 QR 스캔 시작"을 누르세요.');
-});
+/* ---------------------------
+   Excel 다운로드
+--------------------------- */
+function downloadExcel() {
+    const wb = XLSX.utils.book_new();
+
+    const data = [
+        ["차량번호", "이름", "연락처", "톤수", "단계", "QR내용", "스캔시간"],
+        [firstScanData.carNum, firstScanData.driverName, firstScanData.phone,
+         firstScanData.ton, firstScanData.step, firstScanData.qr, firstScanData.time],
+        [secondScanData.carNum, secondScanData.driverName, secondScanData.phone,
+         secondScanData.ton, secondScanData.step, secondScanData.qr, secondScanData.time]
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, "기록");
+    XLSX.writeFile(wb, "차량기록.xlsx");
+}
 </script>
+
 </body>
 </html>
