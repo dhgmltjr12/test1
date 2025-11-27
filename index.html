@@ -3,99 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>차량 출입 기록 시스템 (수정 버전)</title>
+    <title>차량 출입 기록 시스템 (QR 스캔 강제 정상화)</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background-color: #f7f7f7; }
         h2, h3 { color: #333; }
-        input, button { 
-            padding: 10px; 
-            margin-top: 8px; 
-            width: 100%; 
-            box-sizing: border-box; 
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        button { 
-            background-color: #007bff; 
-            color: white; 
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
+        input, button { padding: 10px; margin-top: 8px; width: 100%; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; }
+        button { background-color: #007bff; color: white; cursor: pointer; transition: background-color 0.3s; }
         button:hover { background-color: #0056b3; }
-
-        #scanner-area { 
-            display: none; 
-            margin-top: 20px; 
-            text-align: center; 
-            padding: 15px;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        video { 
-            width: 100%; 
-            max-width: 400px; 
-            border: 3px solid #ccc; 
-            border-radius: 8px;
-            margin-top: 10px;
-        }
-        #output { 
-            margin-top: 15px; 
-            padding: 10px; 
-            border: 1px solid #ffe0b2; 
-            background-color: #fff3e0; 
-            color: #e65100; 
-            border-radius: 4px;
-            min-height: 50px;
-        }
-        #record-display {
-            padding: 15px;
-            background-color: #e8f5e9; 
-            border: 1px solid #c8e6c9;
-            border-radius: 8px;
-        }
-        #record-table th, #record-table td {
-            padding: 8px;
-            text-align: left;
-            border: 1px solid #ddd;
-        }
-        #record-table th {
-            background-color: #dcedc8; 
-        }
+        #scanner-area { display: none; margin-top: 20px; text-align: center; padding: 15px; background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
+        video { width: 100%; max-width: 400px; border: 3px solid #ccc; border-radius: 8px; margin-top: 10px; }
+        #output { margin-top: 15px; padding: 10px; border: 1px solid #ffe0b2; background-color: #fff3e0; color: #e65100; border-radius: 4px; min-height: 50px;}
+        #record-display { padding: 15px; background-color: #e8f5e9; border: 1px solid #c8e6c9; border-radius: 8px;}
+        #record-table th, #record-table td { padding: 8px; text-align: left; border: 1px solid #ddd;}
+        #record-table th { background-color: #dcedc8; }
     </style>
 </head>
 <body>
 
-    <h2>🚗 차량 출입 기록 시스템</h2>
+    <h2>🚗 차량 출입 기록 시스템 (QR 스캔 강제 정상화)</h2>
     <form id="info-form">
         <input type="text" id="car-number" placeholder="1. 차량번호 (예: 12가3456)" required>
         <input type="text" id="driver-name" placeholder="2. 이름" required>
         <input type="tel" id="phone-number" placeholder="3. 전화번호 (예: 010-1234-5678)" required>
         <input type="text" id="car-tonnage" placeholder="4. 차량 톤수 (예: 5톤 또는 5t)" required>
-        
         <button type="submit">입력 완료 & 입차 QR 스캔 시작</button>
     </form>
 
     <div id="scanner-area">
         <h3>QR 스캔 중...</h3>
-        <video id="video" autoplay playsinline></video>
+        <!-- muted 추가 -->
+        <video id="video" autoplay playsinline muted style="transform: scaleX(-1);"></video>
         <canvas id="canvas" style="display: none;"></canvas>
         <div id="output">스캔 결과: 대기 중</div>
-        
         <button id="checkout-start-btn" style="display: none; margin-top: 15px;">▶ 하차 지점 QR 스캔 시작</button>
     </div>
 
     <div id="record-display" style="margin-top: 30px; display: none;">
         <h3>✅ 최종 운행 기록</h3>
         <table id="record-table" style="width: 100%; border-collapse: collapse;">
-            <thead>
-                <tr><th>항목</th><th>내용</th></tr>
-            </thead>
+            <thead><tr><th>항목</th><th>내용</th></tr></thead>
             <tbody></tbody>
         </table>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsQR@1.0.0/dist/jsQR.min.js"></script>
     
     <script>
         const infoForm = document.getElementById('info-form');
@@ -110,121 +61,91 @@
 
         let stream = null;
         let isCheckingIn = true; 
+        let scanLoopId = null;
 
-        // 1. 정보 입력 폼 제출 이벤트
         infoForm.addEventListener('submit', function(e) {
             e.preventDefault();
-            
             const vehicleData = {
                 carNum: document.getElementById('car-number').value,
                 name: document.getElementById('driver-name').value,
                 phoneNumber: document.getElementById('phone-number').value,
                 carTonnage: document.getElementById('car-tonnage').value,
-                checkinTime: null,
-                checkinLocation: null,
-                checkoutTime: null,
-                checkoutLocation: null,
+                checkinTime: null, checkinLocation: null,
+                checkoutTime: null, checkoutLocation: null,
             };
-            
             localStorage.setItem('currentVehicleTrip', JSON.stringify(vehicleData));
             
             infoForm.style.display = 'none';
             scannerArea.style.display = 'block';
             recordDisplay.style.display = 'none';
-            outputDiv.innerHTML = '📍 입차 지점 QR을 스캔해주세요. (예: CHECKIN_A01)';
+            outputDiv.innerHTML = '📍 **입차 지점 QR**을 스캔해주세요.';
             checkoutStartBtn.style.display = 'none';
             
             isCheckingIn = true;
             startScanner();
         });
 
-        // 2. 하차 스캔 시작 버튼 이벤트
         checkoutStartBtn.addEventListener('click', function() {
             checkoutStartBtn.style.display = 'none';
-            outputDiv.innerHTML = '🚚 하차 지점 QR을 스캔해주세요. (예: CHECKOUT_X)';
+            outputDiv.innerHTML = '🚚 **하차 지점 QR**을 스캔해주세요.';
             recordDisplay.style.display = 'none';
-            
             isCheckingIn = false;
             startScanner();
         });
 
-        // 3. 스캐너 시작/중지 함수
         function startScanner() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
-
+            if (stream) stopScanner();
             navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: { ideal: "environment" } } 
+                video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } } 
             })
             .then(function(s) {
                 stream = s;
                 video.srcObject = s;
-                video.setAttribute('playsinline', true);
                 video.play();
-                requestAnimationFrame(tick);
+                // loadedmetadata 이벤트로 변경
+                video.addEventListener('loadedmetadata', function() {
+                    if (!scanLoopId) scanLoopId = setTimeout(tick, 100);
+                }, { once: true });
             })
             .catch(function(err) {
-                outputDiv.innerHTML = '⚠️ 카메라 접근 오류: HTTPS 환경에서만 작동합니다. 브라우저 설정을 확인해주세요.';
+                outputDiv.innerHTML = '⚠️ **카메라 접근 오류**: HTTPS 환경, 권한, 브라우저 호환성을 확인해주세요.';
+                console.error('Camera access error:', err);
             });
         }
 
         function stopScanner() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-            }
+            if (scanLoopId) { clearTimeout(scanLoopId); scanLoopId = null; }
+            if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
         }
 
-        // 4. QR 스캔 루프
         function tick() {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const analysisWidth = video.videoWidth || video.clientWidth;
+                const analysisHeight = video.videoHeight || video.clientHeight;
+                canvas.width = analysisWidth;
+                canvas.height = analysisHeight;
+                ctx.drawImage(video, 0, 0, analysisWidth, analysisHeight);
+                const imageData = ctx.getImageData(0, 0, analysisWidth, analysisHeight);
                 const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                    inversionAttempts: "dontInvert",
+                    inversionAttempts: "attemptBoth",
                 });
-
-                if (code) {
-                    handleScanResult(code.data);
-                    return; 
-                } else {
+                if (code) { handleScanResult(code.data); return; }
+                else {
                     outputDiv.innerHTML = isCheckingIn 
-                        ? '📍 입차 QR 스캔 중... (카메라를 QR에 가까이 가져가세요)' 
-                        : '🚚 하차 QR 스캔 중... (카메라를 QR에 가까이 가져가세요)';
+                        ? '📍 **입차 QR 스캔 중...** (화면 중앙에 QR을 맞춰주세요)' 
+                        : '🚚 **하차 QR 스캔 중...** (화면 중앙에 QR을 맞춰주세요)';
                 }
             }
-            if (stream) {
-                requestAnimationFrame(tick);
-            }
+            scanLoopId = setTimeout(tick, 100); 
         }
 
-        // 5. 스캔 결과 처리
         function handleScanResult(data) {
             stopScanner();
-            
             let vehicleData = JSON.parse(localStorage.getItem('currentVehicleTrip'));
-            
             if (isCheckingIn) {
                 vehicleData.checkinTime = new Date().toLocaleTimeString('ko-KR');
                 vehicleData.checkinLocation = data;
-                
-                outputDiv.innerHTML = `✅ 입차 완료! 지점: ${data}<br> 이제 하차 지점으로 이동해주세요.`;
+                outputDiv.innerHTML = `✅ **입차 완료!** 지점: **${data}**<br> 이제 하차 지점으로 이동해주세요.`;
                 checkoutStartBtn.style.display = 'block';
-                
             } else {
-                vehicleData.checkoutTime = new Date().toLocaleTimeString('ko-KR');
-                vehicleData.checkoutLocation = data;
-                
-                outputDiv.innerHTML = `✅ 하차 완료! 지점: ${data}<br> 운행 기록을 확인하세요.`;
-                displayFinalRecord(vehicleData); 
-                
-                setTimeout(() => {
-                    infoForm.reset();
-                    infoForm.style.display = 'block';
-                    scannerArea.style
+                vehicleData.checkoutTime = new Date().toLocaleTimeString('ko
