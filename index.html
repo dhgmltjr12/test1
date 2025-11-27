@@ -46,8 +46,26 @@
 // -------------------- 데이터 저장 배열 --------------------
 let logData = [["차량번호","이름","연락처","톤수","시간","QR텍스트","GPS위도","GPS경도"]];
 
-// -------------------- 스캔 시작 --------------------
-function startQR() {
+// -------------------- 후면 카메라 강제 선택 --------------------
+async function getRearCamera() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    let rearCamera = devices.find(d =>
+        d.kind === "videoinput" &&
+        (d.label.toLowerCase().includes("back") ||
+         d.label.toLowerCase().includes("rear"))
+    );
+
+    if (!rearCamera) {
+        // label 접근 제한 시 fallback
+        const videoInputs = devices.filter(d => d.kind === "videoinput");
+        rearCamera = videoInputs[videoInputs.length - 1];
+    }
+
+    return rearCamera.deviceId;
+}
+
+// -------------------- QR 스캔 시작 --------------------
+async function startQR() {
     const car = document.getElementById("carNum").value.trim();
     const name = document.getElementById("name").value.trim();
     const phone = document.getElementById("phone").value.trim();
@@ -58,7 +76,6 @@ function startQR() {
         return;
     }
 
-    // 입력 폼 숨김
     document.getElementById("inputForm").style.display = "none";
     document.getElementById("reader").style.display = "block";
 
@@ -73,31 +90,28 @@ function startQR() {
 
     const html5QrCode = new Html5Qrcode("reader");
 
-    // 카메라 목록 가져오기 → 첫 번째 카메라 사용
+    const rearId = await getRearCamera();
+
     Html5Qrcode.getCameras().then(cameras => {
         if (cameras && cameras.length) {
-            let cameraId = cameras[0].id;
-
             html5QrCode.start(
-                cameraId,
+                rearId || cameras[0].id,
                 config,
-                (decodedText) => {
-                    // QR 스캔 → GPS 가져오기
-                    getGPS().then(pos => {
+                async (decodedText) => {
+                    try {
+                        const pos = await getGPS();
                         const time = new Date().toLocaleString();
                         const lat = pos.coords.latitude;
                         const lon = pos.coords.longitude;
 
-                        logData.push([
-                            car, name, phone, ton, time, decodedText, lat, lon
-                        ]);
+                        logData.push([car, name, phone, ton, time, decodedText, lat, lon]);
 
                         html5QrCode.stop();
-                        showResult(decodedText, lat, lon, false); // 첫 스캔
-                    }).catch(() => {
+                        showResult(decodedText, lat, lon, false);
+                    } catch(e) {
                         alert("GPS 권한을 허용해주세요.");
                         html5QrCode.stop();
-                    });
+                    }
                 },
                 (err) => {}
             );
@@ -142,37 +156,32 @@ function showResult(qrText, lat, lon, isFinal) {
 }
 
 // -------------------- 하차지점 스캔 재시작 --------------------
-function restart() {
+async function restart() {
     document.getElementById("resultBox").style.display = "none";
     document.getElementById("reader").style.display = "block";
 
-    const config = {
-        fps: 15,
-        qrbox: { width: 260, height: 260 },
-        rememberLastUsedCamera: true
-    };
-
+    const config = { fps: 15, qrbox: { width: 260, height: 260 }, rememberLastUsedCamera: true };
     const html5QrCode = new Html5Qrcode("reader");
 
-    Html5Qrcode.getCameras().then(cameras => {
-        const cam = cameras[0].id;
+    const rearId = await getRearCamera();
 
+    Html5Qrcode.getCameras().then(cameras => {
         html5QrCode.start(
-            cam,
+            rearId || cameras[0].id,
             config,
-            (decodedText) => {
-                getGPS().then(pos => {
+            async (decodedText) => {
+                try {
+                    const pos = await getGPS();
                     const time = new Date().toLocaleString();
 
-                    logData.push([
-                        "-", "-", "-", "-", time, decodedText,
-                        pos.coords.latitude, pos.coords.longitude
-                    ]);
-
+                    logData.push(["-", "-", "-", "-", time, decodedText, pos.coords.latitude, pos.coords.longitude]);
                     html5QrCode.stop();
 
                     showResult(decodedText, pos.coords.latitude, pos.coords.longitude, true);
-                });
+                } catch(e) {
+                    alert("GPS 권한을 허용해주세요.");
+                    html5QrCode.stop();
+                }
             }
         );
     });
@@ -182,7 +191,6 @@ function restart() {
 function downloadExcel() {
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(logData);
-
     XLSX.utils.book_append_sheet(wb, ws, "출입기록");
     XLSX.writeFile(wb, "vehicle_log.xlsx");
 }
